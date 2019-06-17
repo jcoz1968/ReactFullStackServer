@@ -6,25 +6,32 @@ const app = express();
 
 app.use(bodyParser.json());
 
-app.get('/api/articles/:name', async (req, res) => { 
+const withDb = async (operations, res) => { 
   try {
-    const articleName = req.params.name;
     const client = await MongoClient.connect('mongodb://localhost:27017', { useNewUrlParser: true });
     const db = client.db('react-blog');
-    const articleInfo = await db.collection('articles').findOne({ name: articleName });
-    res.status(200).json(articleInfo);
+
+    await operations(db);
+
     client.close();
   }
-  catch (e) {
-    res.status(500).json({ message: `something went wrong`, e });
+  catch (error) {
+    res.status(500).json({ message: `something went wrong`, error });
   }
+};
+
+app.get('/api/articles/:name', async (req, res) => {
+  withDb(async (db) => { 
+    const articleName = req.params.name;
+    const articleInfo = await db.collection('articles').findOne({ name: articleName });
+    res.status(200).json(articleInfo);
+  }, res);
 });
 
 app.post('/api/articles/:name/upvote', async (req, res) => {
-  try {
+
+  withDb(async (db) => { 
     const articleName = req.params.name;
-    const client = await MongoClient.connect('mongodb://localhost:27017', { useNewUrlParser: true });
-    const db = client.db('react-blog');
 
     const articleInfo = await db.collection('articles').findOne({ name: articleName });
     await db.collection('articles').updateOne({ name: articleName }, {
@@ -34,19 +41,22 @@ app.post('/api/articles/:name/upvote', async (req, res) => {
     });
     const updatedArticle = await db.collection('articles').findOne({ name: articleName });
     res.status(200).json(updatedArticle);
-    client.close();
-  }
-  catch (error) {
-    res.status(500).json({ message: `something went wrong`, e });
-  }
+  }, res);
 });
 
 app.post('/api/articles/:name/add-comment', (req, res) => { 
-  const { username, text } = req.body;
-  const articleName = req.params.name;
-
-  articlesInfo[articleName].comments.push({ username, text });
-  res.status(200).send(articlesInfo[articleName]);
+  withDb(async (db) => {
+    const { username, text } = req.body;
+    const articleName = req.params.name;
+    const articleInfo = await db.collection('articles').findOne({ name: articleName });
+    await db.collection('articles').updateOne({ name: articleName }, {
+      $set: {
+        comments: articleInfo.comments.concat({ username, text })
+      }
+    });
+    const updatedArticle = await db.collection('articles').findOne({ name: articleName });
+    res.status(200).json(updatedArticle);
+  }, res);
 });
 
 app.listen(8000, () => {
